@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/julieRookieAvailable/hnl-banca/backend/internal/accounts"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/config"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/users"
 )
@@ -78,6 +79,20 @@ func (f *fakeTokenStore) Revoke(ctx context.Context, tokenHash string) error {
 	return nil
 }
 
+type fakeOpener struct {
+	opened []accounts.Account
+	err    error
+}
+
+func (f *fakeOpener) Open(ctx context.Context, userID, accountType, currency string) (accounts.Account, error) {
+	if f.err != nil {
+		return accounts.Account{}, f.err
+	}
+	a := accounts.Account{UserID: userID, AccountNumber: "4001-0000-0001-1", AccountType: accountType, Currency: currency}
+	f.opened = append(f.opened, a)
+	return a, nil
+}
+
 func testService() *Service {
 	cfg := &config.Config{
 		JWTSecret:     "test-secret",
@@ -85,7 +100,7 @@ func testService() *Service {
 		JWTRefreshTTL: 720 * time.Hour,
 	}
 	repo := &fakeUserRepo{byEmail: make(map[string]*users.User), byID: make(map[string]*users.User)}
-	return &Service{cfg: cfg, users: repo, tokens: newFakeTokenStore()}
+	return &Service{cfg: cfg, users: repo, tokens: newFakeTokenStore(), opener: &fakeOpener{}}
 }
 
 func TestRegisterIssuesTokens(t *testing.T) {
@@ -113,6 +128,35 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	_, _, err := svc.Register(context.Background(), "a@b.com", "secret2", "Ana")
 	if !errors.Is(err, users.ErrEmailTaken) {
 		t.Fatalf("esperaba ErrEmailTaken, got %v", err)
+	}
+}
+
+func TestRegisterOpensAccount(t *testing.T) {
+	cfg := &config.Config{JWTSecret: "test-secret", JWTAccessTTL: 15 * time.Minute, JWTRefreshTTL: 720 * time.Hour}
+	repo := &fakeUserRepo{byEmail: make(map[string]*users.User), byID: make(map[string]*users.User)}
+	opener := &fakeOpener{}
+	svc := &Service{cfg: cfg, users: repo, tokens: newFakeTokenStore(), opener: opener}
+
+	if _, _, err := svc.Register(context.Background(), "c@d.com", "secret1", "Carlos"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if len(opener.opened) != 1 {
+		t.Fatalf("esperaba 1 cuenta abierta, got %d", len(opener.opened))
+	}
+	a := opener.opened[0]
+	if a.UserID != "u-c@d.com" || a.AccountType != "checking" || a.Currency != "USD" {
+		t.Fatalf("cuenta abierta inesperada: %+v", a)
+	}
+}
+
+func TestRegisterFailsWhenAccountCannotOpen(t *testing.T) {
+	cfg := &config.Config{JWTSecret: "test-secret", JWTAccessTTL: 15 * time.Minute, JWTRefreshTTL: 720 * time.Hour}
+	repo := &fakeUserRepo{byEmail: make(map[string]*users.User), byID: make(map[string]*users.User)}
+	opener := &fakeOpener{err: errors.New("tb no disponible")}
+	svc := &Service{cfg: cfg, users: repo, tokens: newFakeTokenStore(), opener: opener}
+
+	if _, _, err := svc.Register(context.Background(), "c@d.com", "secret1", "Carlos"); err == nil {
+		t.Fatal("esperaba error si la cuenta no se puede abrir")
 	}
 }
 

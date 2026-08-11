@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/julieRookieAvailable/hnl-banca/backend/internal/tigerbeetle"
 )
 
 var (
@@ -24,6 +25,7 @@ type Account struct {
 
 // AccountRepository es el contrato que consume el handler de cuentas.
 type AccountRepository interface {
+	Create(ctx context.Context, a Account) error
 	OwnedBy(ctx context.Context, userID, accountNumber string) (bool, error)
 	ByNumber(ctx context.Context, accountNumber string) (Account, error)
 	ListByUser(ctx context.Context, userID string) ([]Account, error)
@@ -33,6 +35,24 @@ type PostgresAccountRepository struct{ pool *pgxpool.Pool }
 
 func NewPostgresAccountRepository(pool *pgxpool.Pool) *PostgresAccountRepository {
 	return &PostgresAccountRepository{pool: pool}
+}
+
+// Create inserta el metadato de una cuenta. El id TigerBeetle se deriva del
+// número de cuenta (último segmento), igual que en el seed.
+func (r *PostgresAccountRepository) Create(ctx context.Context, a Account) error {
+	id, err := tigerbeetle.AccountIDFromNumber(a.AccountNumber)
+	if err != nil {
+		return err
+	}
+	lo, hi := id.Uint64()
+	if hi != 0 {
+		return errors.New("id tb fuera de rango int64")
+	}
+	_, err = r.pool.Exec(ctx,
+		`INSERT INTO bank_accounts (account_number, user_id, tb_account_id, account_type, currency)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		a.AccountNumber, a.UserID, int64(lo), a.AccountType, a.Currency)
+	return err
 }
 
 func (r *PostgresAccountRepository) OwnedBy(ctx context.Context, userID, accountNumber string) (bool, error) {

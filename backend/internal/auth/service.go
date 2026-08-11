@@ -12,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/julieRookieAvailable/hnl-banca/backend/internal/accounts"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/config"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/users"
 	"golang.org/x/crypto/bcrypt"
@@ -22,10 +23,16 @@ var (
 	ErrInvalidRefresh     = errors.New("token de refresco inválido")
 )
 
+// AccountOpener abre la primera cuenta bancaria de un usuario al registrarse.
+type AccountOpener interface {
+	Open(ctx context.Context, userID, accountType, currency string) (accounts.Account, error)
+}
+
 type Service struct {
 	cfg    *config.Config
 	users  users.UserRepository
 	tokens TokenStore
+	opener AccountOpener
 }
 
 // TokenStore es el almacenamiento de tokens de refresco.
@@ -37,8 +44,8 @@ type TokenStore interface {
 
 type pgTokenStore struct{ pool *pgxpool.Pool }
 
-func NewService(cfg *config.Config, store users.UserRepository, pool *pgxpool.Pool) *Service {
-	return &Service{cfg: cfg, users: store, tokens: &pgTokenStore{pool: pool}}
+func NewService(cfg *config.Config, store users.UserRepository, pool *pgxpool.Pool, opener AccountOpener) *Service {
+	return &Service{cfg: cfg, users: store, tokens: &pgTokenStore{pool: pool}, opener: opener}
 }
 
 type Tokens struct {
@@ -55,6 +62,11 @@ func (s *Service) Register(ctx context.Context, email, password, fullName string
 	u, err := s.users.Create(ctx, email, string(hash), fullName)
 	if err != nil {
 		return nil, nil, err
+	}
+	if s.opener != nil {
+		if _, err := s.opener.Open(ctx, u.ID, "checking", "USD"); err != nil {
+			return nil, nil, err
+		}
 	}
 	tokens, err := s.issueTokens(ctx, u)
 	if err != nil {

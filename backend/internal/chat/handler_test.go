@@ -25,6 +25,10 @@ func (f *chatFakeAccounts) OwnedBy(ctx context.Context, userID, accountNumber st
 	return owner == userID, nil
 }
 
+func (f *chatFakeAccounts) Create(ctx context.Context, a accounts.Account) error {
+	return nil
+}
+
 func (f *chatFakeAccounts) ByNumber(ctx context.Context, accountNumber string) (accounts.Account, error) {
 	return accounts.Account{}, nil
 }

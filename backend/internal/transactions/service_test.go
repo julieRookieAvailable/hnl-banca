@@ -22,6 +22,10 @@ func (f *fakeAccountRepo) OwnedBy(ctx context.Context, userID, accountNumber str
 	return owner == userID, nil
 }
 
+func (f *fakeAccountRepo) Create(ctx context.Context, a accounts.Account) error {
+	return nil
+}
+
 func (f *fakeAccountRepo) ByNumber(ctx context.Context, accountNumber string) (accounts.Account, error) {
 	return accounts.Account{}, nil
 }

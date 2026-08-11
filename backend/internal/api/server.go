@@ -31,10 +31,10 @@ func NewServer(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logg
 	}
 
 	userRepo := users.NewPostgresUserRepository(pool)
-	authService := auth.NewService(cfg, userRepo, pool)
+	accountRepo := accounts.NewPostgresAccountRepository(pool)
+	authService := auth.NewService(cfg, userRepo, pool, accounts.NewOpener(accountRepo, ledger))
 	authHandler := auth.NewHandler(authService)
 
-	accountRepo := accounts.NewPostgresAccountRepository(pool)
 	accountsHandler := accounts.NewHandler(cfg, accountRepo, ledger)
 
 	txRepo := transactions.NewPostgresTransactionRepository(pool)
