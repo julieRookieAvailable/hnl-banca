@@ -60,8 +60,10 @@ Los servicios:
 
 ### Seed de datos de prueba
 
-La API aplica las migraciones al arrancar. Para cargar el dataset de prueba
-(1000 usuarios, 1605 cuentas, 6429 transacciones) y verificar balances:
+La API aplica las migraciones al arrancar y, si la base está vacía, carga
+automáticamente el dataset de prueba (1000 usuarios, 1605 cuentas, 6429
+transacciones) y verifica que los balances coincidan. Se desactiva con
+`SEED_ON_START=false`. Para forzar una recarga manual:
 
 ```bash
 # dentro del contenedor de la api (el JSON ya está copiado):
@@ -71,7 +73,9 @@ docker compose exec api /app/seed
 #   TB_ADDRESS=127.0.0.1:3001 go run ./cmd/seed -data cmd/seed/data/datos-prueba-HNL.json
 ```
 
-El seed es idempotente y termina verificando que el saldo de cada cuenta en
+El seed es idempotente (re-ejecutarlo no duplica usuarios, cuentas ni
+movimientos: los ids de transferencia TB son deterministas y el `tb_transfer_id`
+es único en Postgres) y termina verificando que el saldo de cada cuenta en
 TigerBeetle coincida con `initial_balance + Σ movimientos`.
 
 ### Usuarios de prueba

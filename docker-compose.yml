@@ -71,6 +71,7 @@ services:
       TB_EXTERNAL_ACCOUNT_ID: ${TB_EXTERNAL_ACCOUNT_ID:-9000001}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
+      SEED_ON_START: ${SEED_ON_START:-true}
     ports:
       - "8080:8080"
     security_opt:

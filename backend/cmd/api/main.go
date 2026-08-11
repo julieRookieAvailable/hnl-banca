@@ -13,6 +13,8 @@ import (
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/api"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/config"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/db"
+	"github.com/julieRookieAvailable/hnl-banca/backend/internal/seed"
+	"github.com/julieRookieAvailable/hnl-banca/backend/internal/tigerbeetle"
 )
 
 func main() {
@@ -44,6 +46,35 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("base de datos lista")
+
+	if cfg.SeedOnStart {
+		var seeded bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users)`).Scan(&seeded); err != nil {
+			logger.Error("no se pudo comprobar si la base está vacía", "error", err)
+			os.Exit(1)
+		}
+		if seeded {
+			logger.Info("seed: base ya tiene datos, se omite")
+		} else {
+			seedClient, err := tigerbeetle.NewClient(cfg.TBClusterID, cfg.TBAddress, cfg.TBExternalAccountID)
+			if err != nil {
+				logger.Error("no se pudo conectar a tigerbeetle para el seed", "error", err)
+				os.Exit(1)
+			}
+			res, err := seed.Run(ctx, pool, seedClient, cfg.SeedDataPath)
+			seedClient.Close()
+			if err != nil {
+				logger.Error("falló el auto-seed", "error", err)
+				os.Exit(1)
+			}
+			logger.Info("auto-seed completado",
+				"usuarios_creados", res.UsersCreated,
+				"cuentas_creadas", res.AccountsCreated,
+				"transacciones", res.TransactionsReplayed,
+				"balances_ok", res.BalanceVerificationOK,
+				"mismatches", res.BalanceMismatchCount)
+		}
+	}
 
 	srv, err := api.NewServer(ctx, cfg, pool, logger)
 	if err != nil {

@@ -20,6 +20,8 @@ type Config struct {
 	OpenRouterModel     string
 	CORSOrigin          string
 	RequestTimeout      time.Duration
+	SeedOnStart         bool
+	SeedDataPath        string
 }
 
 func getEnv(key, def string) string {
@@ -60,5 +62,16 @@ func Load() (*Config, error) {
 		OpenRouterModel:     getEnv("OPENROUTER_MODEL", "openrouter/auto"),
 		CORSOrigin:          getEnv("CORS_ORIGIN", "http://localhost:5173"),
 		RequestTimeout:      getDuration("REQUEST_TIMEOUT", "30s"),
+		SeedOnStart:         getBool("SEED_ON_START", true),
+		SeedDataPath:        getEnv("SEED_DATA_PATH", "cmd/seed/data/datos-prueba-HNL.json"),
 	}, nil
+}
+
+func getBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
 }
