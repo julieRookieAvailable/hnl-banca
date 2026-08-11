@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -19,48 +21,17 @@ import (
 const externalAccount = "EXTERNAL"
 
 const systemPrompt = `Eres el asistente virtual de "Banca en Línea HNL". Ayudas a los clientes a consultar
-sus saldos y realizar transferencias. Reglas obligatorias:
-1. Para cualquier transferencia debes usar la herramienta create_pending_transfer, que crea un
+sus saldos, su historial de movimientos y realizar transferencias. Reglas obligatorias:
+1. Para consultar saldos usa get_balances. Para preguntas sobre movimientos recientes usa
+   get_recent_transactions.
+2. Para cualquier transferencia debes usar la herramienta create_pending_transfer, que crea un
    movimiento pendiente. Nunca confirmes ni canceles una transferencia sin la confirmación
    explícita del usuario en el mismo mensaje siguiente.
-2. Después de crear un movimiento pendiente, informa al usuario el monto, origen y destino y
+3. Después de crear un movimiento pendiente, informa al usuario el monto, origen y destino y
    pregúntale si lo confirma o lo cancela.
-3. Si el usuario confirma, usa confirm_pending_transfer con el pending_id indicado. Si cancela,
+4. Si el usuario confirma, usa confirm_pending_transfer con el pending_id indicado. Si cancela,
    usa cancel_pending_transfer.
-4. Sé breve, amable y en español. Usa montos en formato de moneda con 2 decimales.`
-
-var toolDefinitions = []Tool{
-	{
-		Name:        "get_balances",
-		Description: "Devuelve las cuentas del cliente autenticado con su saldo disponible en centavos.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-	},
-	{
-		Name:        "create_pending_transfer",
-		Description: "Crea una transferencia en estado pendiente (dos fases) que requiere confirmación explícita del usuario. to_account puede ser EXTERNAL.",
-		Parameters: json.RawMessage(`{
-			"type":"object",
-			"properties":{
-				"from_account":{"type":"string","description":"Número de cuenta de origen del cliente"},
-				"to_account":{"type":"string","description":"Cuenta destino o EXTERNAL"},
-				"amount":{"type":"number","description":"Monto en la moneda principal (ej. 150.25)"},
-				"description":{"type":"string","description":"Motivo o descripción opcional"}
-			},
-			"required":["from_account","to_account","amount"],
-			"additionalProperties":false
-		}`),
-	},
-	{
-		Name:        "confirm_pending_transfer",
-		Description: "Confirma y aplica una transferencia pendiente usando su pending_id.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"pending_id":{"type":"string"}},"required":["pending_id"],"additionalProperties":false}`),
-	},
-	{
-		Name:        "cancel_pending_transfer",
-		Description: "Cancela (void) una transferencia pendiente usando su pending_id.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"pending_id":{"type":"string"}},"required":["pending_id"],"additionalProperties":false}`),
-	},
-}
+5. Sé breve, amable y en español. Usa montos en formato de moneda con 2 decimales.`
 
 type Action struct {
 	Type        string `json:"type"`
@@ -77,6 +48,7 @@ type Service struct {
 	txs      transactions.TransactionRepository
 	pendings PendingStore
 	provider ChatProvider
+	log      *slog.Logger
 }
 
 func NewService(
@@ -85,13 +57,18 @@ func NewService(
 	txs transactions.TransactionRepository,
 	pendings PendingStore,
 	provider ChatProvider,
+	logger *slog.Logger,
 ) *Service {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	return &Service{
 		accounts: accountsRepo,
 		ledger:   ledger,
 		txs:      txs,
 		pendings: pendings,
 		provider: provider,
+		log:      logger,
 	}
 }
 
@@ -131,6 +108,15 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mcpSess, err := h.service.newMCPSession(r.Context(), userID)
+	if err != nil {
+		h.service.log.Error("chat: error creando la sesión MCP", "error", err)
+		respond.Error(w, http.StatusInternalServerError, "CHAT_SETUP_ERROR", "no se pudo preparar el asistente")
+		return
+	}
+	defer mcpSess.close()
+	tools := h.service.toolDefinitions()
+
 	messages := []Message{{Role: "system", Content: systemPrompt}}
 	for _, m := range req.History {
 		if m.Role == "system" {
@@ -143,8 +129,9 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 	var finalReply string
 	var action *Action
 	for i := 0; i < 6; i++ {
-		res, err := h.service.provider.Complete(r.Context(), messages, toolDefinitions)
+		res, err := h.service.provider.Complete(r.Context(), messages, tools)
 		if err != nil {
+			h.service.log.Error("chat: error del proveedor de IA", "error", err)
 			respond.Error(w, http.StatusBadGateway, "CHAT_PROVIDER_ERROR", "error del proveedor de IA: "+err.Error())
 			return
 		}
@@ -156,8 +143,9 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, Message{Role: "assistant", Content: res.Content, ToolCalls: res.ToolCalls})
 
 		for _, tc := range res.ToolCalls {
-			content, act, err := h.service.executeTool(r.Context(), userID, tc.Name, tc.Args)
+			content, act, err := h.service.executeTool(r.Context(), mcpSess, tc.Name, tc.Args)
 			if err != nil {
+				h.service.log.Error("chat: error ejecutando herramienta", "tool", tc.Name, "args", string(tc.Args), "error", err)
 				content = fmt.Sprintf("Error al ejecutar %s: %v", tc.Name, err)
 			}
 			if act != nil {
@@ -204,22 +192,8 @@ func (h *Handler) CancelPending(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, map[string]string{"status": "voided"})
 }
 
-// executeTool ejecuta una herramienta y devuelve el contenido que verá el modelo
-// (string), una acción opcional para la UI y un error.
-func (s *Service) executeTool(ctx context.Context, userID, name string, args json.RawMessage) (string, *Action, error) {
-	switch name {
-	case "get_balances":
-		return s.toolBalances(ctx, userID)
-	case "create_pending_transfer":
-		return s.toolCreatePending(ctx, userID, args)
-	case "confirm_pending_transfer":
-		return s.toolConfirmPending(ctx, userID, args)
-	case "cancel_pending_transfer":
-		return s.toolCancelPending(ctx, userID, args)
-	default:
-		return "", nil, fmt.Errorf("herramienta desconocida %q", name)
-	}
-}
+// executeTool se implementa en mcp.go: invoca las herramientas a través del
+// servidor MCP del SDK oficial.
 
 func (s *Service) toolBalances(ctx context.Context, userID string) (string, *Action, error) {
 	accs, err := s.accounts.ListByUser(ctx, userID)
@@ -271,10 +245,26 @@ type createPendingArgs struct {
 	Description string  `json:"description"`
 }
 
+// decodeToolArgs deserializa los argumentos de una herramienta tolerando que
+// algunos proveedores (p. ej. Anthropic vía OpenRouter) devuelvan el objeto de
+// argumentos como un string JSON doblemente codificado.
+func decodeToolArgs(raw json.RawMessage, v any) error {
+	if err := json.Unmarshal(raw, v); err == nil {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if err := json.Unmarshal([]byte(s), v); err == nil {
+			return nil
+		}
+	}
+	return errors.New("argumentos inválidos")
+}
+
 func (s *Service) toolCreatePending(ctx context.Context, userID string, args json.RawMessage) (string, *Action, error) {
 	var a createPendingArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return "", nil, errors.New("argumentos inválidos para create_pending_transfer")
+	if err := decodeToolArgs(args, &a); err != nil {
+		return "", nil, err
 	}
 	a.FromAccount = strings.TrimSpace(a.FromAccount)
 	a.ToAccount = strings.TrimSpace(a.ToAccount)
@@ -356,8 +346,8 @@ type pendingArgs struct {
 
 func (s *Service) toolConfirmPending(ctx context.Context, userID string, args json.RawMessage) (string, *Action, error) {
 	var a pendingArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return "", nil, errors.New("argumentos inválidos")
+	if err := decodeToolArgs(args, &a); err != nil {
+		return "", nil, err
 	}
 	if err := s.resolvePending(ctx, userID, a.PendingID, "confirm"); err != nil {
 		return "", nil, err
@@ -367,8 +357,8 @@ func (s *Service) toolConfirmPending(ctx context.Context, userID string, args js
 
 func (s *Service) toolCancelPending(ctx context.Context, userID string, args json.RawMessage) (string, *Action, error) {
 	var a pendingArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return "", nil, errors.New("argumentos inválidos")
+	if err := decodeToolArgs(args, &a); err != nil {
+		return "", nil, err
 	}
 	if err := s.resolvePending(ctx, userID, a.PendingID, "cancel"); err != nil {
 		return "", nil, err

@@ -47,6 +47,10 @@ func (f *chatFakeTx) ListByAccount(ctx context.Context, accountNumber string, li
 	return nil, nil
 }
 
+func (f *chatFakeTx) ListRecentByUser(ctx context.Context, userID string, limit int) ([]transactions.Transaction, error) {
+	return nil, nil
+}
+
 func (f *chatFakeTx) Exists(ctx context.Context, accountNumber string) (bool, error) {
 	ok, exists := f.exists[accountNumber]
 	return ok && exists, nil
@@ -136,7 +140,7 @@ func newChatService() (*Service, *chatFakeLedger, *chatFakeTx, *fakePendingStore
 	}
 	tx := &chatFakeTx{exists: map[string]bool{"4001-0001-0002": true}}
 	pending := &fakePendingStore{}
-	svc := NewService(accs, ledger, tx, pending, &fakeProvider{})
+	svc := NewService(accs, ledger, tx, pending, &fakeProvider{}, nil)
 	return svc, ledger, tx, pending
 }
 
@@ -179,6 +183,92 @@ func TestToolCreatePendingInsufficientFunds(t *testing.T) {
 	_, _, err := svc.toolCreatePending(context.Background(), "u1", args)
 	if err == nil {
 		t.Fatal("esperaba error de saldo insuficiente")
+	}
+}
+
+func TestToolCreatePendingDoubleEncodedArgs(t *testing.T) {
+	svc, _, _, pending := newChatService()
+	encoded := json.RawMessage(`"{\"from_account\":\"4001-0001-0001\",\"to_account\":\"4001-0001-0002\",\"amount\":150.25}"`)
+	_, action, err := svc.toolCreatePending(context.Background(), "u1", encoded)
+	if err != nil {
+		t.Fatalf("toolCreatePending con args doble-codificados: %v", err)
+	}
+	if action == nil || action.AmountCents != 15025 {
+		t.Fatalf("acción inesperada con args doble-codificados: %+v", action)
+	}
+	if pending.pending.AmountCents != 15025 {
+		t.Fatalf("pending almacenado incorrecto: %+v", pending.pending)
+	}
+}
+
+func TestExecuteToolViaMCP(t *testing.T) {
+	svc, _, _, pending := newChatService()
+	sess, err := svc.newMCPSession(context.Background(), "u1")
+	if err != nil {
+		t.Fatalf("newMCPSession: %v", err)
+	}
+	defer sess.close()
+
+	content, action, err := svc.executeTool(context.Background(), sess, "get_balances", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("executeTool get_balances: %v", err)
+	}
+	var parsed []map[string]any
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("salida de get_balances no es JSON: %v", err)
+	}
+	if len(parsed) != 1 || parsed[0]["balance_cents"].(float64) != 100000 {
+		t.Fatalf("saldo inesperado: %+v", parsed)
+	}
+	if action != nil {
+		t.Fatalf("get_balances no debería devolver acción: %+v", action)
+	}
+
+	_, action, err = svc.executeTool(context.Background(), sess, "create_pending_transfer",
+		json.RawMessage(`{"from_account":"4001-0001-0001","to_account":"4001-0001-0002","amount":150.25}`))
+	if err != nil {
+		t.Fatalf("executeTool create_pending_transfer: %v", err)
+	}
+	if action == nil || action.PendingID != "309" || action.AmountCents != 15025 {
+		t.Fatalf("acción inesperada a través de MCP: %+v", action)
+	}
+	if pending.pending.AmountCents != 15025 {
+		t.Fatalf("pending almacenado incorrecto: %+v", pending.pending)
+	}
+}
+
+func TestExecuteToolViaMCPDoubleEncodedArgs(t *testing.T) {
+	svc, _, _, pending := newChatService()
+	sess, err := svc.newMCPSession(context.Background(), "u1")
+	if err != nil {
+		t.Fatalf("newMCPSession: %v", err)
+	}
+	defer sess.close()
+
+	encoded := json.RawMessage(`"{\"from_account\":\"4001-0001-0001\",\"to_account\":\"4001-0001-0002\",\"amount\":150.25}"`)
+	_, action, err := svc.executeTool(context.Background(), sess, "create_pending_transfer", encoded)
+	if err != nil {
+		t.Fatalf("executeTool con args doble-codificados: %v", err)
+	}
+	if action == nil || action.AmountCents != 15025 {
+		t.Fatalf("acción inesperada con args doble-codificados: %+v", action)
+	}
+	if pending.pending.AmountCents != 15025 {
+		t.Fatalf("pending almacenado incorrecto: %+v", pending.pending)
+	}
+}
+
+func TestExecuteToolViaMCPUnknown(t *testing.T) {
+	svc, _, _, _ := newChatService()
+	sess, err := svc.newMCPSession(context.Background(), "u1")
+	if err != nil {
+		t.Fatalf("newMCPSession: %v", err)
+	}
+	defer sess.close()
+
+	_, _, err = svc.executeTool(context.Background(), sess, "no_such_tool", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("esperaba error para herramienta desconocida")
 	}
 }
 
