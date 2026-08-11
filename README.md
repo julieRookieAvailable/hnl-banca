@@ -76,12 +76,7 @@ TigerBeetle coincida con `initial_balance + Σ movimientos`.
 
 ### Usuarios de prueba
 
-El dataset incluye 1000 usuarios con sus contraseñas en claro en el JSON, por
-ejemplo:
-
-```json
-{ "email": "ihernandez@email.com", "password": "Isabel2024!" }
-```
+Para probar el login, usa cualquier usuario del dataset sembrado — email y password están en backend/cmd/seed/data/datos-prueba-HNL.json
 
 ## Frontend
 
