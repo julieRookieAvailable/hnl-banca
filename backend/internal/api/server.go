@@ -41,13 +41,12 @@ func NewServer(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logg
 	transferSvc := transactions.NewService(accountRepo, txRepo, ledger)
 	transferHandler := transactions.NewHandler(transferSvc, idempotency.NewPostgresStore(pool))
 
-	var chatHandler *chat.Handler
+	var chatProvider chat.ChatProvider
 	if cfg.OpenRouterAPIKey != "" {
-		chatSvc := chat.NewService(accountRepo, ledger, txRepo,
-			chat.NewPostgresPendingStore(pool),
-			chat.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel))
-		chatHandler = chat.NewHandler(chatSvc)
+		chatProvider = chat.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel)
 	}
+	chatHandler := chat.NewHandler(chat.NewService(accountRepo, ledger, txRepo,
+		chat.NewPostgresPendingStore(pool), chatProvider, logger))
 
 	auth := func(next http.Handler) http.Handler { return middleware.RequireAuth(cfg, next) }
 
@@ -69,12 +68,9 @@ func NewServer(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logg
 	mux.Handle("GET /accounts/{accountNumber}/transactions", auth(http.HandlerFunc(transferHandler.ListByAccount)))
 	mux.Handle("POST /transfers", auth(http.HandlerFunc(transferHandler.Transfer)))
 
-	if chatHandler != nil {
-		mux.Handle("POST /chat", auth(http.HandlerFunc(chatHandler.Chat)))
-		mux.Handle("POST /chat/confirm", auth(http.HandlerFunc(chatHandler.ConfirmPending)))
-		mux.Handle("POST /chat/cancel", auth(http.HandlerFunc(chatHandler.CancelPending)))
-	}
-
+	mux.Handle("POST /chat", auth(http.HandlerFunc(chatHandler.Chat)))
+	mux.Handle("POST /chat/confirm", auth(http.HandlerFunc(chatHandler.ConfirmPending)))
+	mux.Handle("POST /chat/cancel", auth(http.HandlerFunc(chatHandler.CancelPending)))
 	handler := middleware.Timeout(cfg.RequestTimeout)(
 		middleware.Logging(logger)(
 			middleware.WithRequestID(middleware.CORS(cfg.CORSOrigin)(mux)),

@@ -113,7 +113,7 @@ export default function ChatPage() {
                 </div>
                 <p className="whitespace-pre-wrap">{m.content}</p>
 
-                {m.action && m.action.type === "create_pending" && m.actionStatus === "pending" && (
+                {m.action && m.action.type === "pending_transfer" && m.actionStatus === "pending" && (
                   <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
                     <div className="text-xs text-muted-foreground">
                       <p>
@@ -158,7 +158,7 @@ export default function ChatPage() {
                   </Badge>
                 )}
 
-                {m.action && m.action.type !== "create_pending" && (
+                {m.action && m.action.type !== "pending_transfer" && (
                   <p className="mt-2 text-xs text-muted-foreground">
                     {describeAction(m.action)}
                   </p>

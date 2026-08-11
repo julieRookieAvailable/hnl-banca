@@ -30,12 +30,8 @@ export function describeAction(action: ChatAction | null): string | null {
   switch (action.type) {
     case "get_balances":
       return "Consulta de saldos";
-    case "create_pending":
+    case "pending_transfer":
       return `Transferencia de ${action.from_account} a ${action.to_account} por ${action.amount_cents} centavos`;
-    case "confirm_transfer":
-      return "Confirmación de transferencia pendiente";
-    case "cancel_transfer":
-      return "Cancelación de transferencia pendiente";
     default:
       return action.type;
   }
