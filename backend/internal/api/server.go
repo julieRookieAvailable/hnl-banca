@@ -66,6 +66,7 @@ func NewServer(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logg
 	mux.Handle("GET /accounts", auth(http.HandlerFunc(accountsHandler.List)))
 	mux.Handle("GET /accounts/{accountNumber}", auth(http.HandlerFunc(accountsHandler.Get)))
 	mux.Handle("GET /accounts/{accountNumber}/transactions", auth(http.HandlerFunc(transferHandler.ListByAccount)))
+	mux.Handle("GET /transactions/recent", auth(http.HandlerFunc(transferHandler.ListRecent)))
 	mux.Handle("POST /transfers", auth(http.HandlerFunc(transferHandler.Transfer)))
 
 	mux.Handle("POST /chat", auth(http.HandlerFunc(chatHandler.Chat)))

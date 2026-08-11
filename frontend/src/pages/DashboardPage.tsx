@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
-import { useAccounts } from "@/hooks/useAccounts";
+import { useAccounts, useRecentTransactions } from "@/hooks/useAccounts";
 import { useAuth } from "@/context/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, PageLoader } from "@/components/ui/spinner";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 const typeLabels: Record<string, string> = {
   checking: "Cheques",
@@ -16,6 +17,7 @@ const typeLabels: Record<string, string> = {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { data, isLoading, isError } = useAccounts();
+  const recent = useRecentTransactions();
 
   const total = data?.reduce((sum, a) => sum + a.balance_cents, 0) ?? 0;
 
@@ -67,6 +69,54 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Movimientos recientes</CardTitle>
+          <CardDescription>Últimas operaciones de tus cuentas</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recent.isLoading && <PageLoader />}
+          {recent.isError && <ErrorState message="No se pudieron cargar los movimientos recientes." />}
+
+          {recent.data && recent.data.length === 0 && (
+            <p className="text-sm text-muted-foreground">Aún no hay movimientos registrados.</p>
+          )}
+
+          {recent.data && recent.data.length > 0 && (
+            <div className="divide-y">
+              {recent.data.map((t) => {
+                const isDebit = t.type === "debit" || t.type === "withdrawal";
+                const isCredit = t.type === "credit" || t.type === "deposit";
+                return (
+                  <div key={t.id} className="flex items-center justify-between gap-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{t.description || t.type}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(t.timestamp)}</p>
+                      <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                        {t.from_account} → {t.to_account}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span
+                        className={cn(
+                          "text-sm font-semibold",
+                          isCredit ? "text-emerald-600" : isDebit ? "text-destructive" : "",
+                        )}
+                      >
+                        {isDebit ? "-" : "+"}{formatCurrency(t.amount_cents)}
+                      </span>
+                      <Badge variant={t.status === "posted" || t.status === "completed" ? "success" : "secondary"}>
+                        {t.status}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

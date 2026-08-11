@@ -139,6 +139,7 @@ export const api = {
       {},
       true,
     ),
+  recentTransactions: () => request<Transaction[]>("/transactions/recent", {}, true),
   transfer: (data: {
     from_account: string;
     to_account: string;

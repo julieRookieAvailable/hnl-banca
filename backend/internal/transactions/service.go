@@ -33,6 +33,7 @@ type Transaction struct {
 type TransactionRepository interface {
 	Create(ctx context.Context, t Transaction) (int64, error)
 	ListByAccount(ctx context.Context, accountNumber string, limit int) ([]Transaction, error)
+	ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error)
 	Exists(ctx context.Context, accountNumber string) (bool, error)
 }
 
@@ -60,6 +61,35 @@ func (r *PostgresTransactionRepository) ListByAccount(ctx context.Context, accou
 		 ORDER BY timestamp DESC, id DESC
 		 LIMIT $2`,
 		accountNumber, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]Transaction, 0)
+	for rows.Next() {
+		var t Transaction
+		var amount float64
+		if err := rows.Scan(&t.ID, &t.FromAccount, &t.ToAccount, &t.Type, &amount, &t.Description, &t.Timestamp, &t.Status); err != nil {
+			return nil, err
+		}
+		t.AmountCents = int64(amount * 100)
+		list = append(list, t)
+	}
+	return list, rows.Err()
+}
+
+// ListRecentByUser devuelve los movimientos más recientes de todas las cuentas
+// del usuario (para el resumen del dashboard).
+func (r *PostgresTransactionRepository) ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT t.id, t.from_account, t.to_account, t.type, t.amount, t.description, t.timestamp, t.status
+		 FROM transactions t
+		 JOIN bank_accounts ba ON ba.account_number IN (t.from_account, t.to_account)
+		 WHERE ba.user_id = $1
+		 ORDER BY t.timestamp DESC, t.id DESC
+		 LIMIT $2`,
+		userID, limit)
 	if err != nil {
 		return nil, err
 	}

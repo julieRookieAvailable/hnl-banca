@@ -27,4 +27,11 @@ export function useTransactions(accountNumber: string, page: number) {
   });
 }
 
+export function useRecentTransactions() {
+  return useQuery({
+    queryKey: ["transactions", "recent"],
+    queryFn: api.recentTransactions,
+  });
+}
+
 export { PAGE_SIZE };

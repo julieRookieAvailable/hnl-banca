@@ -72,6 +72,29 @@ func (h *Handler) ListByAccount(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, out)
 }
 
+func (h *Handler) ListRecent(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	txs, err := h.svc.txs.ListRecentByUser(r.Context(), userID, 5)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "DB_TXS_LIST", "error al consultar movimientos")
+		return
+	}
+	out := make([]TransactionView, 0, len(txs))
+	for _, t := range txs {
+		out = append(out, TransactionView{
+			ID:          t.ID,
+			FromAccount: t.FromAccount,
+			ToAccount:   t.ToAccount,
+			Type:        t.Type,
+			AmountCents: t.AmountCents,
+			Description: t.Description,
+			Timestamp:   t.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			Status:      t.Status,
+		})
+	}
+	respond.JSON(w, http.StatusOK, out)
+}
+
 type transferRequest struct {
 	FromAccount string `json:"from_account"`
 	ToAccount   string `json:"to_account"`

@@ -45,6 +45,10 @@ func (f *fakeTxRepo) ListByAccount(ctx context.Context, accountNumber string, li
 	return nil, nil
 }
 
+func (f *fakeTxRepo) ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error) {
+	return nil, nil
+}
+
 func (f *fakeTxRepo) Exists(ctx context.Context, accountNumber string) (bool, error) {
 	return accountNumber != "EXTERNAL" && accountNumber != "9999-MISSING", nil
 }
