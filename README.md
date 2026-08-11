@@ -110,7 +110,7 @@ npm run dev            # http://localhost:5173 (usa VITE_API_URL del .env)
 | POST | `/auth/logout` | Revocar refresh token |
 | GET | `/accounts` | Cuentas del usuario con saldo (batch) |
 | GET | `/accounts/{accountNumber}` | Detalle de cuenta |
-| GET | `/accounts/{accountNumber}/transactions` | Movimientos (últimos 100) |
+| GET | `/accounts/{accountNumber}/transactions` | Movimientos paginados (`limit` 1-200, `offset`) |
 | GET | `/transactions/recent` | Últimos 5 movimientos del usuario (dashboard) |
 | POST | `/transfers` | Transferencia (`Idempotency-Key` opcional) |
 | POST | `/deposits` | Depósito desde la cuenta externa (`Idempotency-Key` opcional) |

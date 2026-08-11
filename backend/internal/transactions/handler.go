@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -50,7 +51,8 @@ func (h *Handler) ListByAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	txs, err := h.svc.txs.ListByAccount(r.Context(), accountNumber, 100)
+	limit, offset := paginate(r, 100, 200)
+	txs, err := h.svc.txs.ListByAccount(r.Context(), accountNumber, limit, offset)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "DB_TXS_LIST", "error al consultar movimientos")
 		return
@@ -222,4 +224,21 @@ func (h *Handler) Deposit(w http.ResponseWriter, r *http.Request) {
 		_ = h.store.Set(r.Context(), userID, idemKey, resp)
 	}
 	respond.JSON(w, http.StatusCreated, resp)
+}
+
+// paginate interpreta los query params limit/offset con saneamiento: limit en
+// [1, maxLimit] (default defLimit) y offset >= 0 (default 0).
+func paginate(r *http.Request, defLimit, maxLimit int) (int, int) {
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit <= 0 {
+		limit = defLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
+	if err != nil || offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }

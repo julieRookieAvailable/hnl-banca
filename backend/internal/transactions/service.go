@@ -32,7 +32,7 @@ type Transaction struct {
 // TransactionRepository es el contrato de persistencia de movimientos.
 type TransactionRepository interface {
 	Create(ctx context.Context, t Transaction) (int64, error)
-	ListByAccount(ctx context.Context, accountNumber string, limit int) ([]Transaction, error)
+	ListByAccount(ctx context.Context, accountNumber string, limit, offset int) ([]Transaction, error)
 	ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error)
 	Exists(ctx context.Context, accountNumber string) (bool, error)
 }
@@ -53,14 +53,14 @@ func (r *PostgresTransactionRepository) Create(ctx context.Context, t Transactio
 	return id, err
 }
 
-func (r *PostgresTransactionRepository) ListByAccount(ctx context.Context, accountNumber string, limit int) ([]Transaction, error) {
+func (r *PostgresTransactionRepository) ListByAccount(ctx context.Context, accountNumber string, limit, offset int) ([]Transaction, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, from_account, to_account, type, amount, description, timestamp, status
 		 FROM transactions
 		 WHERE from_account = $1 OR to_account = $1
 		 ORDER BY timestamp DESC, id DESC
-		 LIMIT $2`,
-		accountNumber, limit)
+		 LIMIT $2 OFFSET $3`,
+		accountNumber, limit, offset)
 	if err != nil {
 		return nil, err
 	}

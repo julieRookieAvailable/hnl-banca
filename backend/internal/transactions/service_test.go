@@ -45,7 +45,7 @@ func (f *fakeTxRepo) Create(ctx context.Context, t Transaction) (int64, error) {
 	return f.nextID, nil
 }
 
-func (f *fakeTxRepo) ListByAccount(ctx context.Context, accountNumber string, limit int) ([]Transaction, error) {
+func (f *fakeTxRepo) ListByAccount(ctx context.Context, accountNumber string, limit, offset int) ([]Transaction, error) {
 	return nil, nil
 }
 

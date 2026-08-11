@@ -47,7 +47,7 @@ func (f *chatFakeTx) Create(ctx context.Context, t transactions.Transaction) (in
 	return int64(len(f.created)), nil
 }
 
-func (f *chatFakeTx) ListByAccount(ctx context.Context, accountNumber string, limit int) ([]transactions.Transaction, error) {
+func (f *chatFakeTx) ListByAccount(ctx context.Context, accountNumber string, limit, offset int) ([]transactions.Transaction, error) {
 	return nil, nil
 }
 
