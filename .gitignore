@@ -1,0 +1,27 @@
+# Binarios
+backend/bin/
+*.exe
+*.out
+
+# Entorno
+.env
+.env.local
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Go
+*.test
+coverage.out
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

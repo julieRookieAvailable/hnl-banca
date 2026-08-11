@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hnl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hnl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hnl_password_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-hnl_banca}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hnl} -d ${POSTGRES_DB:-hnl_banca}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  tigerbeetle-init:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.4
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /data/0_0.tigerbeetle ]; then
+          echo "tigerbeetle ya formateado, saltando"
+        else
+          tigerbeetle format --cluster=0 --replica=0 --replica-count=1 --development /data/0_0.tigerbeetle
+        fi
+    volumes:
+      - tigerbeetle-data:/data
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - IPC_LOCK
+
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.4
+    container_name: hnl-tigerbeetle
+    restart: unless-stopped
+    command: ["start", "--addresses=0.0.0.0:3000", "--development", "--cache-grid=256MiB", "/data/0_0.tigerbeetle"]
+    ports:
+      - "${TB_HOST_PORT:-3000}:3000"
+    volumes:
+      - tigerbeetle-data:/data
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - IPC_LOCK
+    networks:
+      default:
+        ipv4_address: 172.20.0.10
+    depends_on:
+      tigerbeetle-init:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: ./backend
+    container_name: hnl-api
+    restart: unless-stopped
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8080
+      DATABASE_URL: postgres://${POSTGRES_USER:-hnl}:${POSTGRES_PASSWORD:-hnl_password_dev}@postgres:5432/${POSTGRES_DB:-hnl_banca}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-cambiar-en-produccion}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-720h}
+      TB_ADDRESS: 172.20.0.10:3000
+      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
+      TB_EXTERNAL_ACCOUNT_ID: ${TB_EXTERNAL_ACCOUNT_ID:-9000001}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
+    ports:
+      - "8080:8080"
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tigerbeetle:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: hnl-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  tigerbeetle-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
