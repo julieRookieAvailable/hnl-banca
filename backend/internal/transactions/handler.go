@@ -162,3 +162,64 @@ func (h *Handler) Transfer(w http.ResponseWriter, r *http.Request) {
 	}
 	respond.JSON(w, http.StatusCreated, resp)
 }
+
+type depositRequest struct {
+	AccountNumber string `json:"account_number"`
+	AmountCents   int64  `json:"amount_cents"`
+	Description   string `json:"description"`
+}
+
+func (h *Handler) Deposit(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+
+	var req depositRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "INVALID_BODY", "cuerpo inválido")
+		return
+	}
+	req.AccountNumber = strings.TrimSpace(req.AccountNumber)
+
+	idemKey := r.Header.Get("Idempotency-Key")
+	if idemKey == "" {
+		idemKey = uuid.NewString()
+	}
+
+	if cached, ok, err := h.store.Get(r.Context(), userID, idemKey); err == nil && ok {
+		respond.JSONRaw(w, http.StatusOK, cached)
+		return
+	}
+
+	created, err := h.svc.Deposit(r.Context(), DepositInput{
+		UserID:         userID,
+		AccountNumber:  req.AccountNumber,
+		AmountCents:    req.AmountCents,
+		Description:    req.Description,
+		IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidInput):
+			respond.Error(w, http.StatusBadRequest, "INVALID_DEPOSIT", "account_number y amount_cents son obligatorios y amount_cents debe ser positivo")
+		case errors.Is(err, ErrDestForbidden):
+			respond.Error(w, http.StatusForbidden, "ACCOUNT_FORBIDDEN", "la cuenta no es tuya")
+		default:
+			respond.Error(w, http.StatusInternalServerError, "TB_DEPOSIT", "error al procesar el depósito")
+		}
+		return
+	}
+
+	resp := TransactionView{
+		ID:          created.ID,
+		FromAccount: created.FromAccount,
+		ToAccount:   created.ToAccount,
+		Type:        created.Type,
+		AmountCents: created.AmountCents,
+		Description: created.Description,
+		Timestamp:   created.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		Status:      created.Status,
+	}
+	if r.Header.Get("Idempotency-Key") != "" {
+		_ = h.store.Set(r.Context(), userID, idemKey, resp)
+	}
+	respond.JSON(w, http.StatusCreated, resp)
+}

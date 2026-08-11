@@ -21,7 +21,7 @@ saldos y ejecutar transferencias en dos fases.
 | Ledger | Interfaz `LedgerClient`; saldos en **batch** (`LookupAccounts`), timeouts por contexto. |
 | IA | Interfaz `ChatProvider` desacoplada del wire format de OpenRouter. |
 | Errores | Un único formato JSON: `{"error":{"code":"...","message":"..."}}`. |
-| Idempotencia | Cabecera `Idempotency-Key` en `POST /transfers`; se cachea la respuesta y el id de transferencia TB es determinista (sha256 de user+key). |
+| Idempotencia | Cabecera `Idempotency-Key` en `POST /transfers` y `POST /deposits`; se cachea la respuesta y el id de transferencia TB es determinista (sha256 de user+key). |
 | Seguridad | bcrypt, JWT HS256, refresh tokens con hash SHA-256, CORS con origen explícito, rate limiting en login/register. |
 | Observabilidad | `slog` con `request_id`, `user_id` enmascarado y duración por petición. |
 | Robustez | Timeouts por petición, graceful shutdown, migraciones idempotentes, seed idempotente. |
@@ -109,6 +109,7 @@ npm run dev            # http://localhost:5173 (usa VITE_API_URL del .env)
 | GET | `/accounts/{accountNumber}/transactions` | Movimientos (últimos 100) |
 | GET | `/transactions/recent` | Últimos 5 movimientos del usuario (dashboard) |
 | POST | `/transfers` | Transferencia (`Idempotency-Key` opcional) |
+| POST | `/deposits` | Depósito desde la cuenta externa (`Idempotency-Key` opcional) |
 | POST | `/chat` | Mensaje al asistente |
 | POST | `/chat/confirm` | Confirmar transferencia pendiente |
 | POST | `/chat/cancel` | Cancelar transferencia pendiente |

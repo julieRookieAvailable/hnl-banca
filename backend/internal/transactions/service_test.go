@@ -212,3 +212,91 @@ func TestTransferInvalidInput(t *testing.T) {
 		t.Fatalf("esperaba ErrInvalidInput, got %v", err)
 	}
 }
+
+func TestDepositSuccess(t *testing.T) {
+	svc, txRepo, ledger := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		nil,
+	)
+	created, err := svc.Deposit(context.Background(), DepositInput{
+		UserID:        "u1",
+		AccountNumber: "4001-0001-0001",
+		AmountCents:   5000,
+		Description:   "abono",
+	})
+	if err != nil {
+		t.Fatalf("depósito esperado sin error, got %v", err)
+	}
+	if created.Type != "deposit" || created.AmountCents != 5000 {
+		t.Fatalf("depósito inesperado: %+v", created)
+	}
+	if len(ledger.transfers) != 1 {
+		t.Fatalf("esperaba 1 transferencia en TB, got %d", len(ledger.transfers))
+	}
+	got := ledger.transfers[0]
+	if got.DebitAccountID != ledger.ExternalID() {
+		t.Fatal("el débito debe ser la cuenta externa del banco")
+	}
+	if got.CreditAccountID != tb.ToUint128(1) {
+		t.Fatalf("el crédito debe ser la cuenta del usuario, got %v", got.CreditAccountID)
+	}
+	if len(txRepo.created) != 1 {
+		t.Fatalf("esperaba 1 registro en postgres, got %d", len(txRepo.created))
+	}
+	if txRepo.created[0].FromAccount != "EXTERNAL" {
+		t.Fatalf("origen esperado EXTERNAL, got %s", txRepo.created[0].FromAccount)
+	}
+}
+
+func TestDepositIdempotentID(t *testing.T) {
+	svc, _, ledger := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		nil,
+	)
+	_, err := svc.Deposit(context.Background(), DepositInput{
+		UserID:         "u1",
+		AccountNumber:  "4001-0001-0001",
+		AmountCents:    100,
+		IdempotencyKey: "dep-1",
+	})
+	if err != nil {
+		t.Fatalf("depósito esperado sin error, got %v", err)
+	}
+	first := ledger.transfers[0].ID
+	_, err = svc.Deposit(context.Background(), DepositInput{
+		UserID:         "u1",
+		AccountNumber:  "4001-0001-0001",
+		AmountCents:    100,
+		IdempotencyKey: "dep-1",
+	})
+	if err != nil {
+		t.Fatalf("reintento esperado sin error, got %v", err)
+	}
+	if ledger.transfers[1].ID != first {
+		t.Fatal("reintento debe usar el mismo id TB")
+	}
+}
+
+func TestDepositInvalidInput(t *testing.T) {
+	svc, _, _ := newTestService(nil, nil)
+	if _, err := svc.Deposit(context.Background(), DepositInput{
+		UserID: "u1", AccountNumber: "4001-0001-0001", AmountCents: 0,
+	}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("esperaba ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestDepositNotOwner(t *testing.T) {
+	svc, _, _ := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		nil,
+	)
+	_, err := svc.Deposit(context.Background(), DepositInput{
+		UserID:        "u2",
+		AccountNumber: "4001-0001-0001",
+		AmountCents:   100,
+	})
+	if !errors.Is(err, ErrDestForbidden) {
+		t.Fatalf("esperaba ErrDestForbidden, got %v", err)
+	}
+}

@@ -228,3 +228,72 @@ func (s *Service) Transfer(ctx context.Context, in TransferInput) (*Transaction,
 		Status:      "completed",
 	}, nil
 }
+
+type DepositInput struct {
+	UserID         string
+	AccountNumber  string
+	AmountCents    int64
+	Description    string
+	IdempotencyKey string
+}
+
+// Deposit acredita fondos desde la cuenta externa del banco a una cuenta del
+// usuario. Reintentar con la misma idempotency key no duplica el movimiento.
+func (s *Service) Deposit(ctx context.Context, in DepositInput) (*Transaction, error) {
+	if in.AccountNumber == "" || in.AmountCents <= 0 {
+		return nil, ErrInvalidInput
+	}
+
+	ok, err := s.accounts.OwnedBy(ctx, in.UserID, in.AccountNumber)
+	if err != nil {
+		if errors.Is(err, accounts.ErrNotFound) {
+			return nil, ErrInvalidInput
+		}
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrDestForbidden
+	}
+
+	toTB, err := tigerbeetle.AccountIDFromNumber(in.AccountNumber)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+
+	txID := tigerbeetle.DeterministicTransferID(in.UserID, in.IdempotencyKey)
+	if in.IdempotencyKey == "" {
+		txID = tigerbeetle.NewID()
+	}
+	err = s.ledger.CreateTransfers(ctx, []tigerbeetle.TransferSpec{{
+		ID:              txID,
+		DebitAccountID:  s.ledger.ExternalID(),
+		CreditAccountID: toTB,
+		AmountCents:     uint64(in.AmountCents),
+	}})
+	if err != nil {
+		return nil, err
+	}
+
+	createdID, err := s.txs.Create(ctx, Transaction{
+		FromAccount: "EXTERNAL",
+		ToAccount:   in.AccountNumber,
+		Type:        "deposit",
+		AmountCents: in.AmountCents,
+		Description: in.Description,
+		Status:      "completed",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Transaction{
+		ID:          createdID,
+		FromAccount: "EXTERNAL",
+		ToAccount:   in.AccountNumber,
+		Type:        "deposit",
+		AmountCents: in.AmountCents,
+		Description: in.Description,
+		Timestamp:   time.Now(),
+		Status:      "completed",
+	}, nil
+}
