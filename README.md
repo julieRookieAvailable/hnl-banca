@@ -84,6 +84,8 @@ Aplicación **Vite + React + TypeScript + Tailwind** con componentes tipo shadcn
 
 - Rutas con carga diferida (`React.lazy` + `Suspense`) y guardas de sesión.
 - `@tanstack/react-query` para cuentas, saldos y movimientos (con paginación).
+- El dashboard muestra el saldo por cuenta y los últimos movimientos de todas
+  las cuentas del usuario (`GET /transactions/recent`).
 - Páginas: inicio/cuentas, detalle de cuenta, transferir y asistente por chat.
 - El asistente muestra la transferencia pendiente creada por function calling con
   botones **Confirmar/Cancelar** (`/chat/confirm` y `/chat/cancel`).
@@ -105,6 +107,7 @@ npm run dev            # http://localhost:5173 (usa VITE_API_URL del .env)
 | GET | `/accounts` | Cuentas del usuario con saldo (batch) |
 | GET | `/accounts/{accountNumber}` | Detalle de cuenta |
 | GET | `/accounts/{accountNumber}/transactions` | Movimientos (últimos 100) |
+| GET | `/transactions/recent` | Últimos 5 movimientos del usuario (dashboard) |
 | POST | `/transfers` | Transferencia (`Idempotency-Key` opcional) |
 | POST | `/chat` | Mensaje al asistente |
 | POST | `/chat/confirm` | Confirmar transferencia pendiente |
