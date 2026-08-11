@@ -83,6 +83,22 @@ ejemplo:
 { "email": "ihernandez@email.com", "password": "Isabel2024!" }
 ```
 
+## Frontend
+
+Aplicación **Vite + React + TypeScript + Tailwind** con componentes tipo shadcn.
+
+- Rutas con carga diferida (`React.lazy` + `Suspense`) y guardas de sesión.
+- `@tanstack/react-query` para cuentas, saldos y movimientos (con paginación).
+- Páginas: inicio/cuentas, detalle de cuenta, transferir y asistente por chat.
+- El asistente muestra la transferencia pendiente creada por function calling con
+  botones **Confirmar/Cancelar** (`/chat/confirm` y `/chat/cancel`).
+
+```bash
+cd frontend
+npm install
+npm run dev            # http://localhost:5173 (usa VITE_API_URL del .env)
+```
+
 ## API
 
 | Método | Ruta | Descripción |
