@@ -52,6 +52,10 @@ func (f *chatFakeTx) ListByAccount(ctx context.Context, accountNumber string, li
 	return nil, nil
 }
 
+func (f *chatFakeTx) ListByAccountAll(ctx context.Context, accountNumber string) ([]transactions.Transaction, error) {
+	return nil, nil
+}
+
 func (f *chatFakeTx) ListRecentByUser(ctx context.Context, userID string, limit int) ([]transactions.Transaction, error) {
 	return nil, nil
 }

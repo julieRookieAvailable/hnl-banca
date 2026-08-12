@@ -33,6 +33,7 @@ type Transaction struct {
 type TransactionRepository interface {
 	Create(ctx context.Context, t Transaction) (int64, error)
 	ListByAccount(ctx context.Context, accountNumber string, limit, offset int) ([]Transaction, error)
+	ListByAccountAll(ctx context.Context, accountNumber string) ([]Transaction, error)
 	ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error)
 	Exists(ctx context.Context, accountNumber string) (bool, error)
 }
@@ -61,6 +62,33 @@ func (r *PostgresTransactionRepository) ListByAccount(ctx context.Context, accou
 		 ORDER BY timestamp DESC, id DESC
 		 LIMIT $2 OFFSET $3`,
 		accountNumber, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]Transaction, 0)
+	for rows.Next() {
+		var t Transaction
+		var amount float64
+		if err := rows.Scan(&t.ID, &t.FromAccount, &t.ToAccount, &t.Type, &amount, &t.Description, &t.Timestamp, &t.Status); err != nil {
+			return nil, err
+		}
+		t.AmountCents = int64(amount * 100)
+		list = append(list, t)
+	}
+	return list, rows.Err()
+}
+
+// ListByAccountAll devuelve todos los movimientos de una cuenta sin paginar, en
+// orden cronológico ascendente, para exportación CSV.
+func (r *PostgresTransactionRepository) ListByAccountAll(ctx context.Context, accountNumber string) ([]Transaction, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, from_account, to_account, type, amount, description, timestamp, status
+		 FROM transactions
+		 WHERE from_account = $1 OR to_account = $1
+		 ORDER BY timestamp ASC, id ASC`,
+		accountNumber)
 	if err != nil {
 		return nil, err
 	}

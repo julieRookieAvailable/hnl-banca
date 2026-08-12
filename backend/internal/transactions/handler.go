@@ -1,8 +1,10 @@
 package transactions
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,6 +74,56 @@ func (h *Handler) ListByAccount(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	respond.JSON(w, http.StatusOK, out)
+}
+
+// ExportCSV descarga todos los movimientos de una cuenta en formato CSV. El
+// monto es con signo desde la perspectiva de la cuenta: positivo si la cuenta
+// es la receptora (crédito), negativo si es la emisora (débito).
+func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
+	accountNumber := r.PathValue("accountNumber")
+	userID := middleware.UserID(r.Context())
+	ok, err := h.svc.accounts.OwnedBy(r.Context(), userID, accountNumber)
+	if err != nil {
+		if errors.Is(err, accounts.ErrNotFound) {
+			respond.Error(w, http.StatusNotFound, "ACCOUNT_NOT_FOUND", "cuenta no encontrada")
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "DB_TXS_LIST", "error al consultar movimientos")
+		return
+	}
+	if !ok {
+		respond.Error(w, http.StatusForbidden, "ACCOUNT_FORBIDDEN", "no tienes acceso a esta cuenta")
+		return
+	}
+
+	txs, err := h.svc.txs.ListByAccountAll(r.Context(), accountNumber)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "DB_TXS_LIST", "error al consultar movimientos")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="movimientos-%s.csv"`, accountNumber))
+	w.WriteHeader(http.StatusOK)
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"fecha", "tipo", "monto", "desde", "hacia", "descripcion", "estado"})
+	for _, t := range txs {
+		monto := float64(t.AmountCents) / 100
+		if t.FromAccount == accountNumber {
+			monto = -monto
+		}
+		_ = cw.Write([]string{
+			t.Timestamp.Format("2006-01-02 15:04:05"),
+			t.Type,
+			fmt.Sprintf("%.2f", monto),
+			t.FromAccount,
+			t.ToAccount,
+			t.Description,
+			t.Status,
+		})
+	}
+	cw.Flush()
 }
 
 func (h *Handler) ListRecent(w http.ResponseWriter, r *http.Request) {

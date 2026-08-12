@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useAccount, useTransactions, PAGE_SIZE } from "@/hooks/useAccounts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,16 +8,35 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorState, PageLoader } from "@/components/ui/spinner";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 export default function AccountDetailPage() {
   const { accountNumber = "" } = useParams();
   const [page, setPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
   const account = useAccount(accountNumber);
   const txns = useTransactions(accountNumber, page);
 
   const rows = txns.data ?? [];
   const hasNext = rows.length === PAGE_SIZE;
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const blob = await api.transactionsCsv(accountNumber);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `movimientos-${accountNumber}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // el error se muestra silenciosamente en el botón
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -50,6 +69,20 @@ export default function AccountDetailPage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Movimientos</CardTitle>
+          <div className="mt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              {exporting ? "Exportando…" : (
+                <>
+                  <Download className="mr-1 h-4 w-4" /> Exportar CSV
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {txns.isLoading && <PageLoader />}

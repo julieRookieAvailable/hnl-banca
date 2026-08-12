@@ -117,6 +117,31 @@ async function request<T>(
   return body as T;
 }
 
+async function requestBlob(path: string, withAuth = false): Promise<Blob> {
+  const headers = new Headers();
+  if (withAuth) {
+    const token = getAccessToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) {
+    let code = "UNKNOWN";
+    let message = `Error ${res.status}`;
+    try {
+      const body: ApiErrorBody = await res.json();
+      code = body?.error?.code ?? code;
+      message = body?.error?.message ?? message;
+    } catch {
+      // respuesta sin cuerpo JSON
+    }
+    throw new ApiError(res.status, code, message);
+  }
+  return res.blob();
+}
+
 export const api = {
   register: (data: { email: string; password: string; full_name: string }) =>
     request<LoginResponse>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
@@ -140,6 +165,8 @@ export const api = {
       true,
     ),
   recentTransactions: () => request<Transaction[]>("/transactions/recent", {}, true),
+  transactionsCsv: (accountNumber: string) =>
+    requestBlob(`/accounts/${encodeURIComponent(accountNumber)}/transactions/export`, true),
   transfer: (data: {
     from_account: string;
     to_account: string;

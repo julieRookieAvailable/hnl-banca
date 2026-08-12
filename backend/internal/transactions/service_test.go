@@ -49,6 +49,10 @@ func (f *fakeTxRepo) ListByAccount(ctx context.Context, accountNumber string, li
 	return nil, nil
 }
 
+func (f *fakeTxRepo) ListByAccountAll(ctx context.Context, accountNumber string) ([]Transaction, error) {
+	return nil, nil
+}
+
 func (f *fakeTxRepo) ListRecentByUser(ctx context.Context, userID string, limit int) ([]Transaction, error) {
 	return nil, nil
 }
