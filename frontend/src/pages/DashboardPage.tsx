@@ -4,6 +4,7 @@ import { useAccounts, useRecentTransactions } from "@/hooks/useAccounts";
 import { useAuth } from "@/context/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import BalanceChart from "@/components/BalanceChart";
 import { ErrorState, PageLoader } from "@/components/ui/spinner";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const recent = useRecentTransactions();
 
   const total = data?.reduce((sum, a) => sum + a.balance_cents, 0) ?? 0;
+  const accountNumbers = data?.map((a) => a.account_number) ?? [];
 
   return (
     <div className="space-y-6">
@@ -69,6 +71,20 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Resumen de movimientos</CardTitle>
+          <CardDescription>Últimas operaciones por tipo de movimiento</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recent.isLoading && <PageLoader />}
+          {recent.isError && <ErrorState message="No se pudieron cargar los movimientos." />}
+          {recent.data && (
+            <BalanceChart transactions={recent.data} userAccounts={accountNumbers} />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">
