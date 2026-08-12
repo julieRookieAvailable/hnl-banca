@@ -31,6 +31,7 @@ type PendingStore interface {
 	Create(ctx context.Context, p PendingTransfer) error
 	ByPendingID(ctx context.Context, pendingID string) (PendingTransfer, error)
 	SetStatus(ctx context.Context, pendingID, status string) error
+	SweepExpired(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type PostgresPendingStore struct{ pool *pgxpool.Pool }
@@ -66,4 +67,17 @@ func (s *PostgresPendingStore) SetStatus(ctx context.Context, pendingID, status 
 	_, err := s.pool.Exec(ctx,
 		`UPDATE pending_transfers SET status = $2 WHERE tb_pending_id = $1`, pendingID, status)
 	return err
+}
+
+// SweepExpired marca como voided las transferencias pendientes que superaron el
+// cutoff. TigerBeetle ya las revirtió automáticamente al vencer su timeout, por
+// lo que aquí solo se refleja ese estado real en Postgres.
+func (s *PostgresPendingStore) SweepExpired(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE pending_transfers SET status = 'voided'
+		 WHERE status = 'pending' AND created_at < $1`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }

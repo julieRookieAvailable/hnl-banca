@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/accounts"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/middleware"
@@ -19,6 +20,10 @@ import (
 )
 
 const externalAccount = "EXTERNAL"
+
+// pendingSweepInterval es la frecuencia del barrido que marca como voided las
+// transferencias pendientes vencidas.
+const pendingSweepInterval = 30 * time.Second
 
 const systemPrompt = `Eres el asistente virtual de "Banca en Línea HNL". Ayudas a los clientes a consultar
 sus saldos, su historial de movimientos y realizar transferencias. Reglas obligatorias:
@@ -428,4 +433,34 @@ func (s *Service) resolvePending(ctx context.Context, userID, pendingID, mode st
 
 func centsToDollars(cents int64) string {
 	return fmt.Sprintf("%.2f", float64(cents)/100)
+}
+
+// StartPendingSweeper lanza un barrido periódico que refleja en Postgres el
+// estado real de las transferencias pendientes: cuando TigerBeetle revierte una
+// pendiente por vencer su timeout, la fila en pending_transfers se marca voided.
+func (s *Service) StartPendingSweeper(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(pendingSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.sweepExpiredPending(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Service) sweepExpiredPending(ctx context.Context) {
+	cutoff := time.Now().Add(-time.Duration(tigerbeetle.PendingTimeoutSeconds) * time.Second)
+	updated, err := s.pendings.SweepExpired(ctx, cutoff)
+	if err != nil {
+		s.log.Warn("barrido de pendings vencidos falló", "error", err)
+		return
+	}
+	if updated > 0 {
+		s.log.Info("pendings vencidos marcados como voided", "filas", updated)
+	}
 }

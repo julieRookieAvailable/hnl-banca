@@ -45,8 +45,10 @@ func NewServer(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logg
 	if cfg.OpenRouterAPIKey != "" {
 		chatProvider = chat.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel)
 	}
-	chatHandler := chat.NewHandler(chat.NewService(accountRepo, ledger, txRepo,
-		chat.NewPostgresPendingStore(pool), chatProvider, logger))
+	chatSvc := chat.NewService(accountRepo, ledger, txRepo,
+		chat.NewPostgresPendingStore(pool), chatProvider, logger)
+	chatHandler := chat.NewHandler(chatSvc)
+	chatSvc.StartPendingSweeper(ctx)
 
 	auth := func(next http.Handler) http.Handler { return middleware.RequireAuth(cfg, next) }
 

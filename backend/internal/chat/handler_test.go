@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/accounts"
 	"github.com/julieRookieAvailable/hnl-banca/backend/internal/tigerbeetle"
@@ -134,6 +135,14 @@ func (f *fakePendingStore) SetStatus(ctx context.Context, pendingID, status stri
 	}
 	f.pending.Status = status
 	return nil
+}
+
+func (f *fakePendingStore) SweepExpired(ctx context.Context, cutoff time.Time) (int64, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	f.pending.Status = "voided"
+	return 1, nil
 }
 
 func newChatService() (*Service, *chatFakeLedger, *chatFakeTx, *fakePendingStore) {
