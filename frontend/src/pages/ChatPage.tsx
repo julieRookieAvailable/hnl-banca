@@ -84,7 +84,7 @@ export default function ChatPage() {
       <div>
         <h1 className="text-2xl font-semibold">Asistente</h1>
         <p className="text-sm text-muted-foreground">
-          Consulta saldos y haz transferencias en lenguaje natural
+          Pide tus saldos o haz una transferencia con solo escribirlo; BancaBot lo procesa por ti.
         </p>
       </div>
 
