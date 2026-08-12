@@ -82,14 +82,6 @@ TigerBeetle coincida con `initial_balance + Σ movimientos`.
 
 Para probar el login, usa cualquier usuario del dataset sembrado — email y password están en backend/cmd/seed/data/datos-prueba-HNL.json
 
-**Dos usuarios recomendados** (2 cuentas cada uno, con más de 10 movimientos para probar la paginación y la gráfica):
-
-| Email | Password | Cuentas |
-|---|---|---|
-| `juan.sanchez361@mail.com` | `Juan2024!` | `4001-2777-8431-0473` (savings) · `4001-6422-8015-0472` (checking) |
-| `danielrodriguez@example.com` | `Daniel2024!` | `4001-3154-6969-0817` (checking) · `4001-6862-4575-0818` (savings) |
-
-
 ## Frontend
 
 Aplicación **Vite + React + TypeScript + Tailwind** con componentes tipo shadcn.
