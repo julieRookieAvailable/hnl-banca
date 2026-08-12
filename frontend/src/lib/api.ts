@@ -151,6 +151,26 @@ export const api = {
       body: JSON.stringify(data),
       headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
     }, true),
+  deposit: (data: {
+    account_number: string;
+    amount_cents: number;
+    description?: string;
+  }, idempotencyKey?: string) =>
+    request<Transaction>("/deposits", {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    }, true),
+  withdraw: (data: {
+    account_number: string;
+    amount_cents: number;
+    description?: string;
+  }, idempotencyKey?: string) =>
+    request<Transaction>("/withdrawals", {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    }, true),
 
   chat: (message: string, history: { role: string; content: string }[]) =>
     request<ChatResponse>("/chat", { method: "POST", body: JSON.stringify({ message, history }) }, true),

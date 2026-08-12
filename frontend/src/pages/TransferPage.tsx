@@ -5,15 +5,40 @@ import { useAccounts } from "@/hooks/useAccounts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ErrorState, PageLoader } from "@/components/ui/spinner";
 import { formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+type Op = "deposit" | "withdraw" | "transfer";
+
+const OPS: { id: Op; label: string }[] = [
+  { id: "deposit", label: "Depósito" },
+  { id: "withdraw", label: "Retiro" },
+  { id: "transfer", label: "Transferencia" },
+];
+
+const TITLES: Record<Op, { title: string; description: string }> = {
+  deposit: {
+    title: "Depositar",
+    description: "Recibe dinero desde fuera del banco",
+  },
+  withdraw: {
+    title: "Retirar",
+    description: "Retira dinero de tu cuenta",
+  },
+  transfer: {
+    title: "Transferir",
+    description: "Envía dinero a otra cuenta",
+  },
+};
 
 export default function TransferPage() {
   const { data: accounts, isLoading, isError } = useAccounts();
   const queryClient = useQueryClient();
 
-  const [fromAccount, setFromAccount] = useState("");
+  const [op, setOp] = useState<Op>("transfer");
+  const [account, setAccount] = useState("");
   const [toAccount, setToAccount] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -22,15 +47,28 @@ export default function TransferPage() {
 
   const mutation = useMutation({
     mutationFn: (data: {
-      from_account: string;
-      to_account: string;
-      amount_cents: number;
+      op: Op;
+      account: string;
+      toAccount: string;
+      amountCents: number;
       description?: string;
-    }) => api.transfer(data, crypto.randomUUID()),
-    onSuccess: (txn) => {
-      setSuccess(
-        `Transferencia de ${formatCurrency(txn.amount_cents)} a ${txn.to_account} realizada.`,
+    }) => {
+      const key = crypto.randomUUID();
+      const body = { account_number: data.account, amount_cents: data.amountCents, description: data.description };
+      if (data.op === "deposit") return api.deposit(body, key);
+      if (data.op === "withdraw") return api.withdraw(body, key);
+      return api.transfer(
+        { from_account: data.account, to_account: data.toAccount, amount_cents: data.amountCents, description: data.description },
+        key,
       );
+    },
+    onSuccess: (txn) => {
+      const verbs: Record<Op, string> = {
+        deposit: `Depósito de ${formatCurrency(txn.amount_cents)} a tu cuenta realizado.`,
+        withdraw: `Retiro de ${formatCurrency(txn.amount_cents)} de tu cuenta realizado.`,
+        transfer: `Transferencia de ${formatCurrency(txn.amount_cents)} a ${txn.to_account} realizada.`,
+      };
+      setSuccess(verbs[op]);
       setAmount("");
       setDescription("");
       setToAccount("");
@@ -39,7 +77,7 @@ export default function TransferPage() {
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
     },
     onError: (err) => {
-      setError(err instanceof ApiError ? err.message : "No se pudo realizar la transferencia");
+      setError(err instanceof ApiError ? err.message : "No se pudo completar la operación");
     },
   });
 
@@ -52,7 +90,14 @@ export default function TransferPage() {
       setError("Ingresa un monto válido mayor a cero");
       return;
     }
-    mutation.mutate({ from_account: fromAccount, to_account: toAccount, amount_cents: cents, description });
+    mutation.mutate({ op, account, toAccount, amountCents: cents, description });
+  };
+
+  const switchOp = (next: Op) => {
+    setOp(next);
+    setError(null);
+    setSuccess(null);
+    setToAccount("");
   };
 
   if (isLoading) return <PageLoader />;
@@ -61,24 +106,41 @@ export default function TransferPage() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Transferir</h1>
-        <p className="text-sm text-muted-foreground">Envía dinero a otra cuenta</p>
+        <h1 className="text-2xl font-semibold">{TITLES[op].title}</h1>
+        <p className="text-sm text-muted-foreground">{TITLES[op].description}</p>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Nueva transferencia</CardTitle>
-          <CardDescription>La transferencia se registra en tu historial</CardDescription>
-        </CardHeader>
+        <div className="p-4">
+          <div className="flex gap-1 rounded-lg bg-muted p-1">
+            {OPS.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => switchOp(o.id)}
+                className={cn(
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  op === o.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="from">Cuenta de origen</Label>
+              <Label htmlFor="account">
+                {op === "transfer" ? "Cuenta de origen" : "Cuenta"}
+              </Label>
               <select
-                id="from"
+                id="account"
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={fromAccount}
-                onChange={(e) => setFromAccount(e.target.value)}
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
                 required
               >
                 <option value="">Selecciona una cuenta</option>
@@ -89,16 +151,20 @@ export default function TransferPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="to">Cuenta destino</Label>
-              <Input
-                id="to"
-                value={toAccount}
-                onChange={(e) => setToAccount(e.target.value)}
-                placeholder="0000-0000-0000-0000"
-                required
-              />
-            </div>
+
+            {op === "transfer" && (
+              <div className="space-y-2">
+                <Label htmlFor="to">Cuenta destino</Label>
+                <Input
+                  id="to"
+                  value={toAccount}
+                  onChange={(e) => setToAccount(e.target.value)}
+                  placeholder="0000-0000-0000-0000"
+                  required
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="amount">Monto (USD)</Label>
               <Input
@@ -126,7 +192,7 @@ export default function TransferPage() {
             {success && <p className="text-sm text-emerald-600">{success}</p>}
 
             <Button type="submit" className="w-full" loading={mutation.isPending}>
-              Transferir
+              {TITLES[op].title}
             </Button>
           </form>
         </CardContent>

@@ -226,6 +226,69 @@ func (h *Handler) Deposit(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, resp)
 }
 
+type withdrawRequest struct {
+	AccountNumber string `json:"account_number"`
+	AmountCents   int64  `json:"amount_cents"`
+	Description   string `json:"description"`
+}
+
+func (h *Handler) Withdraw(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+
+	var req withdrawRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "INVALID_BODY", "cuerpo inválido")
+		return
+	}
+	req.AccountNumber = strings.TrimSpace(req.AccountNumber)
+
+	idemKey := r.Header.Get("Idempotency-Key")
+	if idemKey == "" {
+		idemKey = uuid.NewString()
+	}
+
+	if cached, ok, err := h.store.Get(r.Context(), userID, idemKey); err == nil && ok {
+		respond.JSONRaw(w, http.StatusOK, cached)
+		return
+	}
+
+	created, err := h.svc.Withdraw(r.Context(), WithdrawInput{
+		UserID:         userID,
+		AccountNumber:  req.AccountNumber,
+		AmountCents:    req.AmountCents,
+		Description:    req.Description,
+		IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidInput):
+			respond.Error(w, http.StatusBadRequest, "INVALID_WITHDRAWAL", "account_number y amount_cents son obligatorios y amount_cents debe ser positivo")
+		case errors.Is(err, ErrDestForbidden):
+			respond.Error(w, http.StatusForbidden, "ACCOUNT_FORBIDDEN", "la cuenta no es tuya")
+		case errors.Is(err, ErrInsufficientFunds):
+			respond.Error(w, http.StatusBadRequest, "INSUFFICIENT_FUNDS", "saldo insuficiente")
+		default:
+			respond.Error(w, http.StatusInternalServerError, "TB_WITHDRAWAL", "error al procesar el retiro")
+		}
+		return
+	}
+
+	resp := TransactionView{
+		ID:          created.ID,
+		FromAccount: created.FromAccount,
+		ToAccount:   created.ToAccount,
+		Type:        created.Type,
+		AmountCents: created.AmountCents,
+		Description: created.Description,
+		Timestamp:   created.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		Status:      created.Status,
+	}
+	if r.Header.Get("Idempotency-Key") != "" {
+		_ = h.store.Set(r.Context(), userID, idemKey, resp)
+	}
+	respond.JSON(w, http.StatusCreated, resp)
+}
+
 // paginate interpreta los query params limit/offset con saneamiento: limit en
 // [1, maxLimit] (default defLimit) y offset >= 0 (default 0).
 func paginate(r *http.Request, defLimit, maxLimit int) (int, int) {

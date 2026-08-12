@@ -297,3 +297,81 @@ func (s *Service) Deposit(ctx context.Context, in DepositInput) (*Transaction, e
 		Status:      "completed",
 	}, nil
 }
+
+type WithdrawInput struct {
+	UserID         string
+	AccountNumber  string
+	AmountCents    int64
+	Description    string
+	IdempotencyKey string
+}
+
+// Withdraw debita fondos de una cuenta del usuario hacia la cuenta externa del
+// banco. El destino EXTERNAL es un detalle interno del ledger, nunca se expone
+// al cliente. Reintentar con la misma idempotency key no duplica el movimiento.
+func (s *Service) Withdraw(ctx context.Context, in WithdrawInput) (*Transaction, error) {
+	if in.AccountNumber == "" || in.AmountCents <= 0 {
+		return nil, ErrInvalidInput
+	}
+
+	ok, err := s.accounts.OwnedBy(ctx, in.UserID, in.AccountNumber)
+	if err != nil {
+		if errors.Is(err, accounts.ErrNotFound) {
+			return nil, ErrInvalidInput
+		}
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrDestForbidden
+	}
+
+	fromTB, err := tigerbeetle.AccountIDFromNumber(in.AccountNumber)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+
+	views, err := s.ledger.Balances(ctx, []tigerbeetle.AccountID{fromTB})
+	if err != nil {
+		return nil, err
+	}
+	if len(views) == 0 || in.AmountCents > views[0].BalanceCents {
+		return nil, ErrInsufficientFunds
+	}
+
+	txID := tigerbeetle.DeterministicTransferID(in.UserID, in.IdempotencyKey)
+	if in.IdempotencyKey == "" {
+		txID = tigerbeetle.NewID()
+	}
+	err = s.ledger.CreateTransfers(ctx, []tigerbeetle.TransferSpec{{
+		ID:              txID,
+		DebitAccountID:  fromTB,
+		CreditAccountID: s.ledger.ExternalID(),
+		AmountCents:     uint64(in.AmountCents),
+	}})
+	if err != nil {
+		return nil, err
+	}
+
+	createdID, err := s.txs.Create(ctx, Transaction{
+		FromAccount: in.AccountNumber,
+		ToAccount:   "EXTERNAL",
+		Type:        "withdrawal",
+		AmountCents: in.AmountCents,
+		Description: in.Description,
+		Status:      "completed",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Transaction{
+		ID:          createdID,
+		FromAccount: in.AccountNumber,
+		ToAccount:   "EXTERNAL",
+		Type:        "withdrawal",
+		AmountCents: in.AmountCents,
+		Description: in.Description,
+		Timestamp:   time.Now(),
+		Status:      "completed",
+	}, nil
+}

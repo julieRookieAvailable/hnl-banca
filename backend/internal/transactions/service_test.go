@@ -300,3 +300,105 @@ func TestDepositNotOwner(t *testing.T) {
 		t.Fatalf("esperaba ErrDestForbidden, got %v", err)
 	}
 }
+
+func TestWithdrawSuccess(t *testing.T) {
+	svc, txRepo, ledger := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		map[uint64]int64{1: 5000},
+	)
+	created, err := svc.Withdraw(context.Background(), WithdrawInput{
+		UserID:        "u1",
+		AccountNumber: "4001-0001-0001",
+		AmountCents:   1500,
+	})
+	if err != nil {
+		t.Fatalf("retiro esperado sin error, got %v", err)
+	}
+	if created.Type != "withdrawal" || created.AmountCents != 1500 {
+		t.Fatalf("retiro inesperado: %+v", created)
+	}
+	if len(ledger.transfers) != 1 {
+		t.Fatalf("esperaba 1 transferencia en TB, got %d", len(ledger.transfers))
+	}
+	got := ledger.transfers[0]
+	if got.CreditAccountID != ledger.ExternalID() {
+		t.Fatal("el crédito debe ser la cuenta externa del banco")
+	}
+	if got.DebitAccountID != tb.ToUint128(1) {
+		t.Fatalf("el débito debe ser la cuenta del usuario, got %v", got.DebitAccountID)
+	}
+	if len(txRepo.created) != 1 {
+		t.Fatalf("esperaba 1 registro en postgres, got %d", len(txRepo.created))
+	}
+	if txRepo.created[0].ToAccount != "EXTERNAL" {
+		t.Fatalf("destino esperado EXTERNAL, got %s", txRepo.created[0].ToAccount)
+	}
+}
+
+func TestWithdrawInsufficientFunds(t *testing.T) {
+	svc, _, _ := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		map[uint64]int64{1: 1000},
+	)
+	_, err := svc.Withdraw(context.Background(), WithdrawInput{
+		UserID:        "u1",
+		AccountNumber: "4001-0001-0001",
+		AmountCents:   2500,
+	})
+	if !errors.Is(err, ErrInsufficientFunds) {
+		t.Fatalf("esperaba ErrInsufficientFunds, got %v", err)
+	}
+}
+
+func TestWithdrawInvalidInput(t *testing.T) {
+	svc, _, _ := newTestService(nil, nil)
+	if _, err := svc.Withdraw(context.Background(), WithdrawInput{
+		UserID: "u1", AccountNumber: "4001-0001-0001", AmountCents: 0,
+	}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("esperaba ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestWithdrawNotOwner(t *testing.T) {
+	svc, _, _ := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		map[uint64]int64{1: 100000},
+	)
+	_, err := svc.Withdraw(context.Background(), WithdrawInput{
+		UserID:        "u2",
+		AccountNumber: "4001-0001-0001",
+		AmountCents:   100,
+	})
+	if !errors.Is(err, ErrDestForbidden) {
+		t.Fatalf("esperaba ErrDestForbidden, got %v", err)
+	}
+}
+
+func TestWithdrawIdempotentID(t *testing.T) {
+	svc, _, ledger := newTestService(
+		map[string]string{"4001-0001-0001": "u1"},
+		map[uint64]int64{1: 100000},
+	)
+	_, err := svc.Withdraw(context.Background(), WithdrawInput{
+		UserID:         "u1",
+		AccountNumber:  "4001-0001-0001",
+		AmountCents:    100,
+		IdempotencyKey: "wd-1",
+	})
+	if err != nil {
+		t.Fatalf("retiro esperado sin error, got %v", err)
+	}
+	first := ledger.transfers[0].ID
+	_, err = svc.Withdraw(context.Background(), WithdrawInput{
+		UserID:         "u1",
+		AccountNumber:  "4001-0001-0001",
+		AmountCents:    100,
+		IdempotencyKey: "wd-1",
+	})
+	if err != nil {
+		t.Fatalf("reintento esperado sin error, got %v", err)
+	}
+	if ledger.transfers[1].ID != first {
+		t.Fatal("reintento debe usar el mismo id TB")
+	}
+}
