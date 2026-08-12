@@ -83,10 +83,40 @@ export function clearTokens(): void {
   localStorage.removeItem(REFRESH_KEY);
 }
 
+let refreshPromise: Promise<Tokens | null> | null = null;
+
+async function refreshTokens(): Promise<Tokens | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    return null;
+  }
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const res = await request<Tokens>(
+          "/auth/refresh",
+          { method: "POST", body: JSON.stringify({ refresh_token: refreshToken }) },
+          false,
+          true,
+        );
+        storeTokens(res);
+        return res;
+      } catch {
+        clearTokens();
+        return null;
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
   withAuth = false,
+  skipRefresh = false,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -98,6 +128,13 @@ async function request<T>(
   }
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401 && withAuth && !skipRefresh) {
+    const tokens = await refreshTokens();
+    if (tokens) {
+      return request<T>(path, options, withAuth, true);
+    }
+  }
 
   const raw = await res.text();
   let body: unknown = null;
@@ -117,7 +154,7 @@ async function request<T>(
   return body as T;
 }
 
-async function requestBlob(path: string, withAuth = false): Promise<Blob> {
+async function requestBlob(path: string, withAuth = false, skipRefresh = false): Promise<Blob> {
   const headers = new Headers();
   if (withAuth) {
     const token = getAccessToken();
@@ -127,6 +164,12 @@ async function requestBlob(path: string, withAuth = false): Promise<Blob> {
   }
 
   const res = await fetch(`${API_URL}${path}`, { headers });
+  if (res.status === 401 && withAuth && !skipRefresh) {
+    const tokens = await refreshTokens();
+    if (tokens) {
+      return requestBlob(path, withAuth, true);
+    }
+  }
   if (!res.ok) {
     let code = "UNKNOWN";
     let message = `Error ${res.status}`;

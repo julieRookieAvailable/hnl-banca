@@ -25,7 +25,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(JSON.parse(stored));
           }
         })
-        .catch(() => clearTokens())
+        .catch(() => {
+          clearTokens();
+          localStorage.removeItem("hnl_user");
+          setUser(null);
+        })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
